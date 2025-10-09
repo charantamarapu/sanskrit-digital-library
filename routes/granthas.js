@@ -58,7 +58,7 @@ router.get('/:id', async (req, res) => {
     }
 });
 
-// Export Grantha
+// Export Grantha (FIXED - fetches commentaries by verse IDs)
 router.get('/:id/export', async (req, res) => {
     try {
         const granthaId = req.params.id;
@@ -72,8 +72,13 @@ router.get('/:id/export', async (req, res) => {
         // Fetch all verses
         const verses = await Verse.find({ granthaId }).sort({ chapterNumber: 1, verseNumber: 1 }).lean();
 
-        // Fetch ALL commentaries for this grantha
-        const allCommentaries = await Commentary.find({ granthaId }).lean();
+        // Get all verse IDs
+        const verseIds = verses.map(v => v._id);
+
+        // Fetch ALL commentaries for these verses (FIXED)
+        const allCommentaries = await Commentary.find({
+            verseId: { $in: verseIds }
+        }).lean();
 
         console.log(`Exporting: ${verses.length} verses, ${allCommentaries.length} commentaries`);
 
@@ -128,7 +133,7 @@ router.get('/:id/export', async (req, res) => {
     }
 });
 
-// Import Grantha from JSON file (fixed - properly handles commentary hierarchy)
+// Import Grantha from JSON file
 router.post('/import', upload.single('granthaFile'), async (req, res) => {
     try {
         if (!req.file) {
@@ -136,106 +141,81 @@ router.post('/import', upload.single('granthaFile'), async (req, res) => {
         }
 
         // Parse JSON from uploaded file
-        const fileContent = req.file.buffer.toString('utf8');
-        let importData;
-        try {
-            importData = JSON.parse(fileContent);
-        } catch (parseError) {
-            return res.status(400).json({ error: 'Invalid JSON file format' });
-        }
+        const importData = JSON.parse(req.file.buffer.toString('utf8'));
 
-        // Validate import data structure
+        // Validate import data
         if (!importData.grantha || !importData.verses) {
-            return res.status(400).json({ error: 'Invalid grantha export file structure' });
+            return res.status(400).json({ error: 'Invalid import file format' });
         }
 
-        const { grantha: granthaData, verses: versesData } = importData;
-
-        // Check if grantha with same title already exists
-        const existingGrantha = await Grantha.findOne({
-            title: granthaData.title,
-            author: granthaData.author
-        });
-
-        if (existingGrantha) {
-            return res.status(400).json({
-                error: 'A grantha with the same title and author already exists. Please delete it first or modify the import file.'
-            });
-        }
-
-        // Create new grantha
+        // Create grantha (without _id)
+        const { _id, createdAt, updatedAt, __v, ...granthaData } = importData.grantha;
         const newGrantha = new Grantha(granthaData);
         await newGrantha.save();
 
-        let versesCreated = 0;
-        let commentariesCreated = 0;
+        // Map to store old verse IDs to new verse IDs
+        const verseIdMap = new Map();
 
-        // Create verses and commentaries
-        for (const verseData of versesData) {
-            const { commentaries, ...verseInfo } = verseData;
+        // Import verses
+        for (const oldVerse of importData.verses) {
+            const { _id: oldId, createdAt, updatedAt, __v, ...verseData } = oldVerse;
 
-            // Create verse
             const newVerse = new Verse({
-                ...verseInfo,
+                ...verseData,
                 granthaId: newGrantha._id
             });
             await newVerse.save();
-            versesCreated++;
 
-            // Create commentaries for this verse
-            if (commentaries && commentaries.length > 0) {
-                // Map to track old commentary IDs to new commentary IDs
-                const commentaryIdMap = new Map();
+            // Store mapping of old ID to new ID
+            verseIdMap.set(oldId, newVerse._id);
+        }
 
-                // Sort commentaries by level to create parent commentaries first
-                const sortedCommentaries = [...commentaries].sort((a, b) => (a.level || 0) - (b.level || 0));
+        // Import commentaries (if they exist)
+        if (importData.commentaries && importData.commentaries.length > 0) {
+            // Map to store old commentary IDs to new commentary IDs
+            const commentaryIdMap = new Map();
 
-                for (const commentaryData of sortedCommentaries) {
-                    // Determine the correct parent commentary ID
-                    let newParentId = null;
-                    if (commentaryData.parentCommentaryId) {
-                        // Look up the new ID of the parent commentary
-                        newParentId = commentaryIdMap.get(commentaryData.parentCommentaryId);
-                        if (!newParentId) {
-                            console.warn(`Parent commentary not found for: ${commentaryData.commentaryName}, setting parentCommentaryId to null`);
-                        }
+            // First pass: Create all commentaries (without parent references)
+            for (const oldCommentary of importData.commentaries) {
+                const { _id: oldId, createdAt, updatedAt, __v, ...commentaryData } = oldCommentary;
+
+                const newCommentary = new Commentary({
+                    ...commentaryData,
+                    granthaId: newGrantha._id,
+                    verseId: verseIdMap.get(commentaryData.verseId.toString()),
+                    parentCommentaryId: null // Will fix in second pass
+                });
+                await newCommentary.save();
+
+                // Store mapping
+                commentaryIdMap.set(oldId, newCommentary._id);
+            }
+
+            // Second pass: Update parent commentary references
+            for (const oldCommentary of importData.commentaries) {
+                if (oldCommentary.parentCommentaryId) {
+                    const newCommentaryId = commentaryIdMap.get(oldCommentary._id);
+                    const newParentId = commentaryIdMap.get(oldCommentary.parentCommentaryId.toString());
+
+                    if (newCommentaryId && newParentId) {
+                        await Commentary.findByIdAndUpdate(newCommentaryId, {
+                            parentCommentaryId: newParentId
+                        });
                     }
-
-                    const newCommentary = new Commentary({
-                        granthaId: newGrantha._id,
-                        verseId: newVerse._id,
-                        commentaryName: commentaryData.commentaryName,
-                        commentator: commentaryData.commentator,
-                        commentaryText: commentaryData.commentaryText,
-                        level: commentaryData.level || 0,
-                        parentCommentaryId: newParentId,
-                        githubPath: commentaryData.githubPath || null
-                    });
-
-                    await newCommentary.save();
-
-                    // Store the mapping from old ID to new ID
-                    if (commentaryData._id) {
-                        commentaryIdMap.set(commentaryData._id, newCommentary._id);
-                    }
-
-                    commentariesCreated++;
                 }
             }
         }
 
-        res.status(201).json({
-            message: `Grantha imported successfully! Created ${versesCreated} verses and ${commentariesCreated} commentaries.`,
-            grantha: newGrantha,
-            statistics: {
-                versesCreated,
-                commentariesCreated
-            }
+        res.json({
+            message: `Successfully imported ${importData.verses.length} verses${importData.commentaries ? ` and ${importData.commentaries.length} commentaries` : ''}`,
+            granthaId: newGrantha._id
         });
+
     } catch (error) {
         console.error('Import error:', error);
         res.status(500).json({
-            error: 'Failed to import grantha: ' + error.message
+            error: 'Failed to import grantha',
+            details: error.message
         });
     }
 });
@@ -243,40 +223,10 @@ router.post('/import', upload.single('granthaFile'), async (req, res) => {
 // Create new grantha
 router.post('/', async (req, res) => {
     try {
-        const { verses, ...granthaData } = req.body;
-
-        // Create grantha
-        const grantha = new Grantha(granthaData);
+        const grantha = new Grantha(req.body);
         await grantha.save();
-
-        // Create verses and commentaries if provided
-        if (verses && verses.length > 0) {
-            for (const verseData of verses) {
-                const { commentaries, ...verseInfo } = verseData;
-
-                const verse = new Verse({
-                    ...verseInfo,
-                    granthaId: grantha._id
-                });
-                await verse.save();
-
-                // Create commentaries for this verse
-                if (commentaries && commentaries.length > 0) {
-                    for (const commentaryData of commentaries) {
-                        const commentary = new Commentary({
-                            ...commentaryData,
-                            verseId: verse._id,
-                            granthaId: grantha._id
-                        });
-                        await commentary.save();
-                    }
-                }
-            }
-        }
-
         res.status(201).json(grantha);
     } catch (error) {
-        console.error('Error creating grantha:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -284,11 +234,9 @@ router.post('/', async (req, res) => {
 // Update grantha
 router.put('/:id', async (req, res) => {
     try {
-        const { verses, ...granthaData } = req.body;
-
         const grantha = await Grantha.findByIdAndUpdate(
             req.params.id,
-            granthaData,
+            req.body,
             { new: true, runValidators: true }
         );
 
@@ -296,46 +244,13 @@ router.put('/:id', async (req, res) => {
             return res.status(404).json({ error: 'Grantha not found' });
         }
 
-        // Update verses if provided
-        if (verses && verses.length > 0) {
-            // Delete existing verses and commentaries
-            const existingVerses = await Verse.find({ granthaId: grantha._id });
-            for (const verse of existingVerses) {
-                await Commentary.deleteMany({ verseId: verse._id });
-            }
-            await Verse.deleteMany({ granthaId: grantha._id });
-
-            // Create new verses and commentaries
-            for (const verseData of verses) {
-                const { commentaries, ...verseInfo } = verseData;
-
-                const verse = new Verse({
-                    ...verseInfo,
-                    granthaId: grantha._id
-                });
-                await verse.save();
-
-                if (commentaries && commentaries.length > 0) {
-                    for (const commentaryData of commentaries) {
-                        const commentary = new Commentary({
-                            ...commentaryData,
-                            verseId: verse._id,
-                            granthaId: grantha._id
-                        });
-                        await commentary.save();
-                    }
-                }
-            }
-        }
-
         res.json(grantha);
     } catch (error) {
-        console.error('Error updating grantha:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// Delete grantha (MongoDB only, keeps GitHub data)
+// Delete grantha
 router.delete('/:id', async (req, res) => {
     try {
         const grantha = await Grantha.findById(req.params.id);
@@ -343,35 +258,25 @@ router.delete('/:id', async (req, res) => {
             return res.status(404).json({ error: 'Grantha not found' });
         }
 
-        console.log(`Deleting grantha from MongoDB: ${grantha.title} (${req.params.id})`);
-
-        // Delete all associated verses and commentaries from MongoDB only
+        // Delete all associated verses
         const verses = await Verse.find({ granthaId: req.params.id });
-        console.log(`Found ${verses.length} verses to delete`);
 
         // Delete all commentaries for all verses
         for (const verse of verses) {
-            const commentaryCount = await Commentary.countDocuments({ verseId: verse._id });
-            if (commentaryCount > 0) {
-                await Commentary.deleteMany({ verseId: verse._id });
-                console.log(`  Deleted ${commentaryCount} commentaries for verse ${verse._id}`);
-            }
+            await Commentary.deleteMany({ verseId: verse._id });
         }
 
         // Delete all verses
         await Verse.deleteMany({ granthaId: req.params.id });
-        console.log(`✓ Deleted ${verses.length} verses`);
 
         // Delete grantha
         await Grantha.findByIdAndDelete(req.params.id);
-        console.log('✓ Deleted grantha from database');
 
         res.json({
-            message: 'Grantha deleted successfully from database (GitHub data preserved)',
+            message: 'Grantha deleted successfully',
             deletedVerses: verses.length
         });
     } catch (error) {
-        console.error('Error deleting grantha:', error);
         res.status(500).json({ error: error.message });
     }
 });
