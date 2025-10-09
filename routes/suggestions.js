@@ -5,11 +5,9 @@ const Suggestion = require('../models/Suggestion');
 // Submit a suggestion
 router.post('/', async (req, res) => {
     try {
-        console.log('Received suggestion data:', req.body); // Debug log
-
+        console.log('Received suggestion data:', req.body);
         const { granthaId, verseId, commentaryId, suggestionType, originalText, suggestedText, reason, submittedBy } = req.body;
 
-        // Validate required fields
         if (!granthaId || !verseId || !suggestionType || !originalText || !suggestedText) {
             return res.status(400).json({
                 error: 'Missing required fields',
@@ -53,6 +51,7 @@ router.get('/pending', async (req, res) => {
             .populate('verseId')
             .populate('commentaryId')
             .sort({ createdAt: -1 });
+
         res.json(suggestions);
     } catch (error) {
         console.error('Error fetching suggestions:', error);
@@ -60,36 +59,38 @@ router.get('/pending', async (req, res) => {
     }
 });
 
-// Approve suggestion (admin only)
+// Approve and DELETE suggestion (admin only)
 router.put('/:id/approve', async (req, res) => {
     try {
-        const suggestion = await Suggestion.findByIdAndUpdate(
-            req.params.id,
-            { status: 'approved' },
-            { new: true }
-        );
+        const suggestion = await Suggestion.findByIdAndDelete(req.params.id);
+
         if (!suggestion) {
             return res.status(404).json({ error: 'Suggestion not found' });
         }
-        res.json(suggestion);
+
+        res.json({
+            message: 'Suggestion approved and deleted',
+            suggestion
+        });
     } catch (error) {
         console.error('Error approving suggestion:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// Reject suggestion (admin only)
+// Reject and DELETE suggestion (admin only)
 router.put('/:id/reject', async (req, res) => {
     try {
-        const suggestion = await Suggestion.findByIdAndUpdate(
-            req.params.id,
-            { status: 'rejected' },
-            { new: true }
-        );
+        const suggestion = await Suggestion.findByIdAndDelete(req.params.id);
+
         if (!suggestion) {
             return res.status(404).json({ error: 'Suggestion not found' });
         }
-        res.json(suggestion);
+
+        res.json({
+            message: 'Suggestion rejected and deleted',
+            suggestion
+        });
     } catch (error) {
         console.error('Error rejecting suggestion:', error);
         res.status(500).json({ error: error.message });
