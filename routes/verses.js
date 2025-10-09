@@ -121,7 +121,7 @@ ${verseText}
 router.get('/grantha/:granthaId', async (req, res) => {
     try {
         const verses = await Verse.find({ granthaId: req.params.granthaId })
-            .lean(); // Remove .sort() from here
+            .lean(); // Returns plain objects, not Mongoose documents
 
         // Sort manually to handle mixed string/number types
         verses.sort((a, b) => {
@@ -144,19 +144,19 @@ router.get('/grantha/:granthaId', async (req, res) => {
                     if (verse.githubPath) {
                         const content = await fetchContentFromGitHub(verse.githubPath);
                         return {
-                            ...verse.toObject(),
+                            ...verse, // Already plain object from .lean()
                             verseText: content
                         };
                     } else {
                         return {
-                            ...verse.toObject(),
+                            ...verse, // Already plain object from .lean()
                             verseText: verse.verseText || ''
                         };
                     }
                 } catch (error) {
                     console.error(`Error fetching verse ${verse._id}:`, error.message);
                     return {
-                        ...verse.toObject(),
+                        ...verse, // Already plain object from .lean()
                         verseText: 'Error loading content'
                     };
                 }
@@ -173,7 +173,8 @@ router.get('/grantha/:granthaId', async (req, res) => {
 // Get single verse by ID (using GitHub API - instant updates)
 router.get('/:id', async (req, res) => {
     try {
-        const verse = await Verse.findById(req.params.id);
+        const verse = await Verse.findById(req.params.id).lean(); // Added .lean()
+
         if (!verse) {
             return res.status(404).json({ error: 'Verse not found' });
         }
@@ -182,19 +183,19 @@ router.get('/:id', async (req, res) => {
             try {
                 const content = await fetchContentFromGitHub(verse.githubPath);
                 res.json({
-                    ...verse.toObject(),
+                    ...verse, // Already plain object from .lean()
                     verseText: content
                 });
             } catch (error) {
                 console.error('Error fetching from GitHub:', error.message);
                 res.json({
-                    ...verse.toObject(),
+                    ...verse, // Already plain object from .lean()
                     verseText: 'Error loading content'
                 });
             }
         } else {
             res.json({
-                ...verse.toObject(),
+                ...verse, // Already plain object from .lean()
                 verseText: verse.verseText || ''
             });
         }
@@ -217,7 +218,7 @@ router.post('/', async (req, res) => {
         await verse.save();
 
         res.status(201).json({
-            ...verse.toObject(),
+            ...verse.toObject(), // NOT using .lean() here, so .toObject() is correct
             verseText: verseText
         });
     } catch (error) {
@@ -231,7 +232,8 @@ router.put('/:id', async (req, res) => {
     try {
         const { verseText, ...verseData } = req.body;
 
-        const verse = await Verse.findById(req.params.id);
+        const verse = await Verse.findById(req.params.id); // NOT using .lean() for update
+
         if (!verse) {
             return res.status(404).json({ error: 'Verse not found' });
         }
@@ -246,7 +248,7 @@ router.put('/:id', async (req, res) => {
         await verse.save();
 
         res.json({
-            ...verse.toObject(),
+            ...verse.toObject(), // NOT using .lean(), so .toObject() is correct
             verseText: verseText
         });
     } catch (error) {
@@ -258,7 +260,8 @@ router.put('/:id', async (req, res) => {
 // Delete verse
 router.delete('/:id', async (req, res) => {
     try {
-        const verse = await Verse.findById(req.params.id);
+        const verse = await Verse.findById(req.params.id); // NOT using .lean() for delete
+
         if (!verse) {
             return res.status(404).json({ error: 'Verse not found' });
         }
