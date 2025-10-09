@@ -7,24 +7,18 @@ const verseSchema = new mongoose.Schema({
         required: true
     },
     chapterNumber: {
-        type: mongoose.Schema.Types.Mixed,  // Changed from Number
+        type: mongoose.Schema.Types.Mixed,
         required: true
     },
     verseNumber: {
-        type: mongoose.Schema.Types.Mixed,  // Changed from Number
+        type: mongoose.Schema.Types.Mixed,
         required: true
     },
     verseText: {
         type: String,
-        required: false
-    },
-    githubPath: {
-        type: String,
-        required: false
+        required: true  // Now stored directly in MongoDB
     }
-}, {
-    timestamps: true
-});
+}, { timestamps: true });
 
 verseSchema.index({ granthaId: 1, chapterNumber: 1, verseNumber: 1 });
 
