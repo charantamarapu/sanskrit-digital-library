@@ -243,22 +243,40 @@ function VerseManager({ theme }) {
     };
 
     const resetForm = () => {
-        // Auto-calculate next verse number
-        let nextChapter = 1;
-        let nextVerse = 1;
+        let nextChapter = '1';
+        let nextVerse = '1';
 
         if (verses.length > 0) {
-            // Find the last verse
             const sortedVerses = [...verses].sort((a, b) => {
-                if (a.chapterNumber === b.chapterNumber) {
-                    return b.verseNumber - a.verseNumber;
+                // Sort by chapter first, then verse
+                if (String(a.chapterNumber) === String(b.chapterNumber)) {
+                    return String(a.verseNumber).localeCompare(String(b.verseNumber), undefined, { numeric: true });
                 }
-                return b.chapterNumber - a.chapterNumber;
+                return String(a.chapterNumber).localeCompare(String(b.chapterNumber), undefined, { numeric: true });
             });
 
-            const lastVerse = sortedVerses[0];
-            nextChapter = lastVerse.chapterNumber;
-            nextVerse = lastVerse.verseNumber + 1;
+            const lastVerse = sortedVerses[sortedVerses.length - 1];
+            nextChapter = String(lastVerse.chapterNumber);
+
+            // Smart increment for verse number
+            const lastVerseNum = String(lastVerse.verseNumber);
+            const match = lastVerseNum.match(/^(\d+)([a-z]?)$/);
+
+            if (match) {
+                const num = parseInt(match[1]);
+                const letter = match[2];
+
+                if (letter) {
+                    // Has letter suffix: 1a -> 1b
+                    nextVerse = num + String.fromCharCode(letter.charCodeAt(0) + 1);
+                } else {
+                    // Plain number: 1 -> 2
+                    nextVerse = String(num + 1);
+                }
+            } else {
+                // Fallback
+                nextVerse = '1';
+            }
         }
 
         setFormData({
@@ -275,20 +293,45 @@ function VerseManager({ theme }) {
     };
 
     const handleChapterChange = (chapterNum) => {
-        // Auto-calculate next verse number for this chapter
-        const chapterVerses = verses.filter(v => v.chapterNumber === Number(chapterNum));
-        let nextVerseNum = 1;
+        // Only auto-calculate if NOT editing an existing verse
+        if (!editingVerse) {
+            const chapterVerses = verses.filter(v => String(v.chapterNumber) === String(chapterNum));
+            let nextVerseNum = '1';
 
-        if (chapterVerses.length > 0) {
-            const maxVerse = Math.max(...chapterVerses.map(v => v.verseNumber));
-            nextVerseNum = maxVerse + 1;
+            if (chapterVerses.length > 0) {
+                // Smart increment
+                const lastVerse = chapterVerses[chapterVerses.length - 1];
+                const lastVerseNum = String(lastVerse.verseNumber);
+                const match = lastVerseNum.match(/^(\d+)([a-z]?)$/);
+
+                if (match) {
+                    const num = match[1];
+                    const letter = match[2];
+
+                    if (letter) {
+                        // 1a -> 1b
+                        nextVerseNum = num + String.fromCharCode(letter.charCodeAt(0) + 1);
+                    } else {
+                        // 1 -> 2
+                        nextVerseNum = String(parseInt(num) + 1);
+                    }
+                } else {
+                    nextVerseNum = String(chapterVerses.length + 1);
+                }
+            }
+
+            setFormData({
+                ...formData,
+                chapterNumber: chapterNum,
+                verseNumber: nextVerseNum
+            });
+        } else {
+            // When editing, just update chapter, keep existing verse number
+            setFormData({
+                ...formData,
+                chapterNumber: chapterNum
+            });
         }
-
-        setFormData({
-            ...formData,
-            chapterNumber: Number(chapterNum),
-            verseNumber: nextVerseNum
-        });
     };
 
     const versesByChapter = verses.reduce((acc, verse) => {
@@ -332,29 +375,29 @@ function VerseManager({ theme }) {
                     </div>
 
                     <form className="verse-form" onSubmit={handleSubmit}>
-                        <div className="form-row">
-                            <div className="form-group">
-                                <label>{grantha.chapterLabel || 'अध्यायः'} Number *</label>
-                                <input
-                                    type="number"
-                                    value={formData.chapterNumber}
-                                    onChange={(e) => handleChapterChange(e.target.value)}
-                                    min="1"
-                                    required
-                                />
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label>{grantha.chapterLabel} Number</label>
+                                    <input
+                                        type="text"
+                                        value={formData.chapterNumber}
+                                        onChange={(e) => handleChapterChange(e.target.value)}
+                                        placeholder="Auto-incremented"
+                                        required
+                                    />
+                                </div>
+
+                                <div className="form-group">
+                                    <label>{grantha.verseLabel} Number</label>
+                                    <input
+                                        type="text"
+                                        value={formData.verseNumber}
+                                        onChange={(e) => setFormData({ ...formData, verseNumber: e.target.value })}
+                                        placeholder="Auto-incremented"
+                                        required
+                                    />
+                                </div>
                             </div>
-                            <div className="form-group">
-                                <label>{grantha.verseLabel || 'श्लोकः'} Number *</label>
-                                <input
-                                    type="number"
-                                    value={formData.verseNumber}
-                                    onChange={(e) => setFormData({ ...formData, verseNumber: parseInt(e.target.value) })}
-                                    min="1"
-                                    required
-                                />
-                                <small className="field-hint">Auto-incremented to next available number</small>
-                            </div>
-                        </div>
 
                             <div className="form-group">
                                 <label>Verse Text (Sanskrit) *</label>

@@ -121,7 +121,22 @@ ${verseText}
 router.get('/grantha/:granthaId', async (req, res) => {
     try {
         const verses = await Verse.find({ granthaId: req.params.granthaId })
-            .sort({ chapterNumber: 1, verseNumber: 1 });
+            .lean(); // Remove .sort() from here
+
+        // Sort manually to handle mixed string/number types
+        verses.sort((a, b) => {
+            // Compare chapters
+            const chapterA = String(a.chapterNumber);
+            const chapterB = String(b.chapterNumber);
+            const chapterCompare = chapterA.localeCompare(chapterB, undefined, { numeric: true });
+
+            if (chapterCompare !== 0) return chapterCompare;
+
+            // If same chapter, compare verses
+            const verseA = String(a.verseNumber);
+            const verseB = String(b.verseNumber);
+            return verseA.localeCompare(verseB, undefined, { numeric: true });
+        });
 
         const versesWithContent = await Promise.all(
             verses.map(async (verse) => {

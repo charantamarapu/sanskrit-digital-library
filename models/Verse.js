@@ -7,16 +7,16 @@ const verseSchema = new mongoose.Schema({
         required: true
     },
     chapterNumber: {
-        type: Number,
+        type: mongoose.Schema.Types.Mixed,  // Changed from Number
         required: true
     },
     verseNumber: {
-        type: Number,
+        type: mongoose.Schema.Types.Mixed,  // Changed from Number
         required: true
     },
     verseText: {
         type: String,
-        required: false  // Changed from required: true
+        required: false
     },
     githubPath: {
         type: String,
