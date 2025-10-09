@@ -437,15 +437,11 @@ function GranthaView({ theme, setTheme }) {
     };
 
     const htmlToTextRuns = (html) => {
-        if (!html) return { runs: [new TextRun({ text: '' })], alignment: null };
+        if (!html) return [{ runs: [new TextRun({ text: '' })], alignment: null }];
 
-        // Convert <p> tags to pilcrow for Word export
-        const convertedHtml = html
-            .replace(/<\/p><p[^>]*>/gi, '¶')
-            .replace(/<p[^>]*>|<\/p>/gi, '');
-
+        // Don't convert <p> to pilcrow, keep them as separate paragraphs
         const div = document.createElement('div');
-        div.innerHTML = convertedHtml; // Use convertedHtml instead of html
+        div.innerHTML = html;
         const paragraphs = [];
         let currentAlignment = null;
 
@@ -458,7 +454,7 @@ function GranthaView({ theme, setTheme }) {
                     if (text) {
                         const processedText = text.replace(/\u00A0/g, ' ').replace(/\u2003/g, '\t');
                         textRuns.push(new TextRun({
-                            text: processedText,  // Just pass the ¶ symbol as-is
+                            text: processedText,
                             bold: style.bold || false,
                             italics: style.italics || false,
                             underline: style.underline ? { type: 'single' } : undefined,
@@ -508,7 +504,6 @@ function GranthaView({ theme, setTheme }) {
 
                     // Handle line breaks
                     if (tagName === 'br') {
-                        // Simple line break (Shift+Enter)
                         textRuns.push(new TextRun({ text: '', break: 1 }));
                         return;
                     }
@@ -522,43 +517,28 @@ function GranthaView({ theme, setTheme }) {
             return textRuns;
         };
 
-        // Process top-level nodes
+        // Process top-level nodes - KEEP THEM SEPARATE
         Array.from(div.childNodes).forEach((node) => {
             if (node.nodeType === Node.ELEMENT_NODE && node.tagName.toLowerCase() === 'p') {
-                // This is a paragraph
                 const runs = processParagraph(node);
                 if (runs.length > 0) {
-                    paragraphs.push(runs);
+                    paragraphs.push({ runs, alignment: currentAlignment });
                 } else {
-                    // Empty paragraph - add empty line
-                    paragraphs.push([new TextRun({ text: '' })]);
+                    // Empty paragraph
+                    paragraphs.push({ runs: [new TextRun({ text: '' })], alignment: currentAlignment });
                 }
             } else if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
-                // Standalone text node
-                paragraphs.push([new TextRun({ text: node.textContent })]);
+                paragraphs.push({ runs: [new TextRun({ text: node.textContent })], alignment: currentAlignment });
             } else if (node.nodeType === Node.ELEMENT_NODE) {
-                // Other element (div, span, etc)
                 const runs = processParagraph(node);
                 if (runs.length > 0) {
-                    paragraphs.push(runs);
+                    paragraphs.push({ runs, alignment: currentAlignment });
                 }
             }
         });
 
-        // Flatten paragraphs into single array with breaks between them
-        const allRuns = [];
-        paragraphs.forEach((paragraphRuns, index) => {
-            allRuns.push(...paragraphRuns);
-            // Add paragraph break after each paragraph except the last
-            if (index < paragraphs.length - 1) {
-                allRuns.push(new TextRun({ text: '', break: 1 }));
-            }
-        });
-
-        return {
-            runs: allRuns.length > 0 ? allRuns : [new TextRun({ text: '' })],
-            alignment: currentAlignment
-        };
+        // Return ARRAY of paragraph objects, not flattened runs
+        return paragraphs.length > 0 ? paragraphs : [{ runs: [new TextRun({ text: '' })], alignment: null }];
     };
 
     const generateWord = async () => {
@@ -617,18 +597,18 @@ function GranthaView({ theme, setTheme }) {
                     })
                 );
 
-                // Verse text
-                const verseTextData = htmlToTextRuns(verse.verseText);
-                children.push(
-                    new Paragraph({
-                        children: verseTextData.runs,
-                        spacing: { before: 200, after: 300 },
+                // For verses
+                const verseParagraphs = htmlToTextRuns(verse.verseText);
+                verseParagraphs.forEach(para => {
+                    children.push(new Paragraph({
+                        children: para.runs,
+                        spacing: { before: 100, after: 100 },
                         indent: { left: 400 },
-                        alignment: verseTextData.alignment === 'center' ? AlignmentType.CENTER :
-                            verseTextData.alignment === 'right' ? AlignmentType.RIGHT :
+                        alignment: para.alignment === 'center' ? AlignmentType.CENTER :
+                            para.alignment === 'right' ? AlignmentType.RIGHT :
                                 AlignmentType.LEFT
-                    })
-                );
+                    }));
+                });
 
                 // Commentaries
                 const verseCommentaries = commentariesByVerse[verse._id] || [];
@@ -670,18 +650,18 @@ function GranthaView({ theme, setTheme }) {
                             );
                         }
 
-                        // Commentary text
-                        const commentaryTextData = htmlToTextRuns(commentary.commentaryText);
-                        children.push(
-                            new Paragraph({
-                                children: commentaryTextData.runs,
-                                spacing: { after: 200 },
-                                indent: { left: (level * 400) + 400 },
-                                alignment: commentaryTextData.alignment === 'center' ? AlignmentType.CENTER :
-                                    commentaryTextData.alignment === 'right' ? AlignmentType.RIGHT :
+                        // For commentaries
+                        const commentaryParagraphs = htmlToTextRuns(commentary.commentaryText);
+                        commentaryParagraphs.forEach(para => {
+                            children.push(new Paragraph({
+                                children: para.runs,
+                                spacing: { before: 100, after: 100 },
+                                indent: { left: 800 },
+                                alignment: para.alignment === 'center' ? AlignmentType.CENTER :
+                                    para.alignment === 'right' ? AlignmentType.RIGHT :
                                         AlignmentType.LEFT
-                            })
-                        );
+                            }));
+                        });
                     });
 
                 // Separator between verses
@@ -755,10 +735,11 @@ function GranthaView({ theme, setTheme }) {
 
     const formatForDisplay = (html) => {
         if (!html) return '';
-        // Convert <p> tags to <br> for display on webpage
+        // Keep <p> tags for proper paragraph breaks
+        // Just ensure they're properly formatted
         return html
-            .replace(/<\/p><p[^>]*>/gi, '<br>')
-            .replace(/<p[^>]*>|<\/p>/gi, '');
+            .replace(/<p>/gi, '<p>')
+            .replace(/<\/p>/gi, '</p>');
     };
 
     return (
