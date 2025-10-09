@@ -1,18 +1,9 @@
 ﻿const express = require('express');
 const router = express.Router();
 const multer = require('multer');
-const { Octokit } = require('@octokit/rest');
 const Grantha = require('../models/Grantha');
 const Verse = require('../models/Verse');
 const Commentary = require('../models/Commentary');
-
-const GITHUB_OWNER = 'charantamarapu';
-const GITHUB_REPO = 'sanskrit-library-data';
-
-// Initialize Octokit
-const octokit = new Octokit({
-    auth: process.env.GITHUB_TOKEN
-});
 
 // Configure multer for file upload
 const storage = multer.memoryStorage();
@@ -27,97 +18,6 @@ const upload = multer({
         }
     }
 });
-
-// Optimized batch delete function using Git Trees API
-const deleteGranthaFromGitHub = async (granthaId) => {
-    try {
-        console.log(`Starting deletion of grantha ${granthaId} from GitHub...`);
-
-        // Get the current reference (main branch)
-        const { data: ref } = await octokit.git.getRef({
-            owner: GITHUB_OWNER,
-            repo: GITHUB_REPO,
-            ref: 'heads/main',
-        });
-
-        const commitSha = ref.object.sha;
-        console.log(`Current commit SHA: ${commitSha}`);
-
-        // Get the current commit
-        const { data: commit } = await octokit.git.getCommit({
-            owner: GITHUB_OWNER,
-            repo: GITHUB_REPO,
-            commit_sha: commitSha,
-        });
-
-        const treeSha = commit.tree.sha;
-
-        // Get the full tree (recursive)
-        const { data: tree } = await octokit.git.getTree({
-            owner: GITHUB_OWNER,
-            repo: GITHUB_REPO,
-            tree_sha: treeSha,
-            recursive: 'true',
-        });
-
-        console.log(`Total files in repo: ${tree.tree.length}`);
-
-        // Filter out all files under granthas/{granthaId}/
-        const pathPrefix = `granthas/${granthaId}`;
-        const newTree = tree.tree
-            .filter(item => !item.path.startsWith(pathPrefix))
-            .map(item => ({
-                path: item.path,
-                mode: item.mode,
-                type: item.type,
-                sha: item.sha,
-            }));
-
-        const deletedCount = tree.tree.length - newTree.length;
-        console.log(`Files to be deleted: ${deletedCount}`);
-
-        if (deletedCount === 0) {
-            console.log(`No files found for grantha ${granthaId}, skipping GitHub deletion`);
-            return;
-        }
-
-        // Create new tree
-        const { data: newTreeData } = await octokit.git.createTree({
-            owner: GITHUB_OWNER,
-            repo: GITHUB_REPO,
-            tree: newTree,
-        });
-
-        console.log(`New tree created: ${newTreeData.sha}`);
-
-        // Create new commit
-        const { data: newCommit } = await octokit.git.createCommit({
-            owner: GITHUB_OWNER,
-            repo: GITHUB_REPO,
-            message: `Delete grantha ${granthaId}`,
-            tree: newTreeData.sha,
-            parents: [commitSha],
-        });
-
-        console.log(`New commit created: ${newCommit.sha}`);
-
-        // Update reference to point to new commit
-        await octokit.git.updateRef({
-            owner: GITHUB_OWNER,
-            repo: GITHUB_REPO,
-            ref: 'heads/main',
-            sha: newCommit.sha,
-        });
-
-        console.log(`✓ Successfully deleted grantha ${granthaId} from GitHub (${deletedCount} files removed)`);
-    } catch (error) {
-        console.error('Error deleting grantha from GitHub:', error.message);
-        if (error.response) {
-            console.error('GitHub API Error:', error.response.data);
-        }
-        throw error;
-    }
-};
 
 // Get all published granthas (with pagination)
 router.get('/', async (req, res) => {
@@ -158,7 +58,7 @@ router.get('/:id', async (req, res) => {
     }
 });
 
-// Export Grantha with all verses and commentaries (with IDs for proper import)
+// Export Grantha
 router.get('/:id/export', async (req, res) => {
     try {
         const granthaId = req.params.id;
@@ -169,40 +69,15 @@ router.get('/:id/export', async (req, res) => {
             return res.status(404).json({ error: 'Grantha not found' });
         }
 
-        // Fetch all verses for this grantha
+        // Fetch all verses
         const verses = await Verse.find({ granthaId }).sort({ chapterNumber: 1, verseNumber: 1 }).lean();
 
-        // Fetch all commentaries for this grantha
-        const commentaries = await Commentary.find({ granthaId }).lean();
+        // Fetch ALL commentaries for this grantha
+        const allCommentaries = await Commentary.find({ granthaId }).lean();
 
-        // Organize commentaries by verseId
-        const commentariesByVerse = {};
-        commentaries.forEach(commentary => {
-            const verseId = commentary.verseId.toString();
-            if (!commentariesByVerse[verseId]) {
-                commentariesByVerse[verseId] = [];
-            }
-            commentariesByVerse[verseId].push({
-                _id: commentary._id.toString(), // Keep ID for parent reference
-                commentaryName: commentary.commentaryName,
-                commentator: commentary.commentator,
-                commentaryText: commentary.commentaryText,
-                level: commentary.level,
-                parentCommentaryId: commentary.parentCommentaryId ? commentary.parentCommentaryId.toString() : null,
-                githubPath: commentary.githubPath
-            });
-        });
+        console.log(`Exporting: ${verses.length} verses, ${allCommentaries.length} commentaries`);
 
-        // Attach commentaries to their respective verses
-        const versesWithCommentaries = verses.map(verse => ({
-            chapterNumber: verse.chapterNumber,
-            verseNumber: verse.verseNumber,
-            verseText: verse.verseText,
-            githubPath: verse.githubPath,
-            commentaries: commentariesByVerse[verse._id.toString()] || []
-        }));
-
-        // Create export data structure
+        // Create export data
         const exportData = {
             exportVersion: '1.0',
             exportDate: new Date().toISOString(),
@@ -221,18 +96,32 @@ router.get('/:id/export', async (req, res) => {
                 verseLabelEnglish: grantha.verseLabelEnglish,
                 availableCommentaries: grantha.availableCommentaries
             },
-            verses: versesWithCommentaries,
+            verses: verses.map(verse => ({
+                _id: verse._id.toString(),
+                chapterNumber: verse.chapterNumber,
+                verseNumber: verse.verseNumber,
+                verseText: verse.verseText
+            })),
+            commentaries: allCommentaries.map(commentary => ({
+                _id: commentary._id.toString(),
+                verseId: commentary.verseId.toString(),
+                commentaryName: commentary.commentaryName,
+                commentator: commentary.commentator,
+                commentaryText: commentary.commentaryText,
+                level: commentary.level,
+                parentCommentaryId: commentary.parentCommentaryId ? commentary.parentCommentaryId.toString() : null
+            })),
             statistics: {
                 totalVerses: verses.length,
-                totalCommentaries: commentaries.length,
+                totalCommentaries: allCommentaries.length,
                 chapters: [...new Set(verses.map(v => v.chapterNumber))].length
             }
         };
 
-        // Set headers for file download
         res.setHeader('Content-Type', 'application/json');
         res.setHeader('Content-Disposition', `attachment; filename="${grantha.titleEnglish || grantha.title || 'grantha'}_export.json"`);
         res.json(exportData);
+
     } catch (error) {
         console.error('Export error:', error);
         res.status(500).json({ error: 'Failed to export grantha: ' + error.message });
