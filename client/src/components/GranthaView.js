@@ -733,15 +733,6 @@ function GranthaView({ theme, setTheme }) {
         return acc;
     }, {});
 
-    const formatForDisplay = (html) => {
-        if (!html) return '';
-        // Keep <p> tags for proper paragraph breaks
-        // Just ensure they're properly formatted
-        return html
-            .replace(/<p>/gi, '<p>')
-            .replace(/<\/p>/gi, '</p>');
-    };
-
     return (
         <div className="grantha-view">
             <header className="view-header">
@@ -900,7 +891,7 @@ function GranthaView({ theme, setTheme }) {
                                                 <div
                                                     className="verse-text"
                                                     style={{ fontFamily: fontFamily }}
-                                                    dangerouslySetInnerHTML={{ __html: highlightSearchText(stripInlineFontStyles(formatForDisplay(verse.verseText), verse._id)) }}
+                                                    dangerouslySetInnerHTML={{ __html: highlightSearchText(stripInlineFontStyles(verse.verseText), verse._id) }}
                                                 />
 
                                                 {commentariesByVerse[verse._id] && (() => {
@@ -950,7 +941,7 @@ function GranthaView({ theme, setTheme }) {
                                                                     <div
                                                                         className="commentary-text"
                                                                         style={{ fontFamily: fontFamily }}
-                                                                        dangerouslySetInnerHTML={{ __html: highlightSearchText(stripInlineFontStyles(formatForDisplay(commentary.commentaryText), verse._id, commentary._id)) }}
+                                                                        dangerouslySetInnerHTML={{ __html: highlightSearchText(stripInlineFontStyles(commentary.commentaryText, verse._id, commentary._id)) }}
                                                                     />
                                                                 </div>
 

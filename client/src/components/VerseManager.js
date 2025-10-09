@@ -409,35 +409,22 @@ function VerseManager({ theme }) {
                                     dir="ltr"
                                     dangerouslySetInnerHTML={{ __html: formData.verseText }}
                                     onKeyDown={(e) => {
-                                        if (e.key === 'Enter' && !e.shiftKey) {
+                                        if (e.key === 'Enter') {
                                             e.preventDefault();
-                                            document.execCommand('insertHTML', false, '<p><br></p>');
+
+                                            if (e.shiftKey) {
+                                                // Shift+Enter = Line break (simple <br>)
+                                                document.execCommand('insertHTML', false, '<br>');
+                                            } else {
+                                                // Enter = Paragraph break (<p><br></p>)
+                                                document.execCommand('insertHTML', false, '<p><br></p>');
+                                            }
+
                                             setFormData({ ...formData, verseText: verseEditorRef.current.innerHTML });
                                         }
                                     }}
                                     onInput={(e) => {
-                                        let html = e.currentTarget.innerHTML;
-
-                                        // Check if HTML contains the pilcrow symbol
-                                        if (html.includes('¶')) {
-                                            // Replace pilcrow with <p><br></p> to create paragraph breaks
-                                            html = html.replace(/¶/g, '<p><br></p>');
-
-                                            // Update the content
-                                            const cursorPos = window.getSelection().getRangeAt(0).startOffset;
-                                            e.currentTarget.innerHTML = html;
-
-                                            // Restore cursor position (simplified)
-                                            const range = document.createRange();
-                                            const sel = window.getSelection();
-                                            try {
-                                                range.setStart(e.currentTarget.childNodes[0] || e.currentTarget, cursorPos);
-                                                range.collapse(true);
-                                                sel.removeAllRanges();
-                                                sel.addRange(range);
-                                            } catch (err) { }
-                                        }
-
+                                        // Track cursor position
                                         const selection = window.getSelection();
                                         if (selection.rangeCount > 0) {
                                             const range = selection.getRangeAt(0);
@@ -447,6 +434,8 @@ function VerseManager({ theme }) {
                                             const caretOffset = preCaretRange.toString().length;
                                             setVerseCursorPosition(caretOffset);
                                         }
+
+                                        // Update form data
                                         setFormData({ ...formData, verseText: e.currentTarget.innerHTML });
                                     }}
                                     onPaste={(e) => {
