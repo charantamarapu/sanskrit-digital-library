@@ -1,6 +1,11 @@
 ﻿const mongoose = require('mongoose');
 
 const commentarySchema = new mongoose.Schema({
+    granthaId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Grantha',
+        required: true
+    },
     verseId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Verse',
@@ -15,7 +20,7 @@ const commentarySchema = new mongoose.Schema({
     },
     commentaryText: {
         type: String,
-        required: true  // Now stored directly in MongoDB
+        required: true
     },
     level: {
         type: Number,
@@ -28,6 +33,7 @@ const commentarySchema = new mongoose.Schema({
 }, { timestamps: true });
 
 commentarySchema.index({ verseId: 1 });
+commentarySchema.index({ granthaId: 1 });
 commentarySchema.index({ parentCommentaryId: 1 });
 
 module.exports = mongoose.model('Commentary', commentarySchema);
