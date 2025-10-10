@@ -250,6 +250,62 @@ router.put('/:id', async (req, res) => {
     }
 });
 
+// Update grantha (ENHANCED - also updates commentary names)
+router.put('/:id', async (req, res) => {
+    try {
+        const oldGrantha = await Grantha.findById(req.params.id);
+        if (!oldGrantha) {
+            return res.status(404).json({ error: 'Grantha not found' });
+        }
+
+        // Check if availableCommentaries changed
+        const oldCommentaries = oldGrantha.availableCommentaries || [];
+        const newCommentaries = req.body.availableCommentaries || [];
+
+        // Create a map of old names to new names
+        const nameChanges = new Map();
+        oldCommentaries.forEach(oldComm => {
+            const newComm = newCommentaries.find(nc => nc._id && nc._id.toString() === oldComm._id.toString());
+            if (newComm && newComm.name !== oldComm.name) {
+                nameChanges.set(oldComm.name, newComm.name);
+            }
+        });
+
+        // Update the grantha
+        const grantha = await Grantha.findByIdAndUpdate(
+            req.params.id,
+            req.body,
+            { new: true, runValidators: true }
+        );
+
+        // Update all Commentary documents with the old names
+        if (nameChanges.size > 0) {
+            console.log('Updating commentary names:', Array.from(nameChanges.entries()));
+
+            for (const [oldName, newName] of nameChanges.entries()) {
+                const result = await Commentary.updateMany(
+                    {
+                        granthaId: req.params.id,
+                        commentaryName: oldName
+                    },
+                    {
+                        $set: { commentaryName: newName }
+                    }
+                );
+                console.log(`Updated ${result.modifiedCount} commentaries from "${oldName}" to "${newName}"`);
+            }
+        }
+
+        res.json({
+            grantha,
+            updatedCommentaries: nameChanges.size > 0 ? Array.from(nameChanges.entries()) : []
+        });
+    } catch (error) {
+        console.error('Update error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Delete grantha
 router.delete('/:id', async (req, res) => {
     try {
