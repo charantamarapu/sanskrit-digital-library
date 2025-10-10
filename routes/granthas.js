@@ -58,31 +58,22 @@ router.get('/:id', async (req, res) => {
     }
 });
 
-// Export Grantha (FIXED - fetches commentaries by verse IDs)
+// Export Grantha
 router.get('/:id/export', async (req, res) => {
     try {
         const granthaId = req.params.id;
 
-        // Fetch grantha
         const grantha = await Grantha.findById(granthaId).lean();
         if (!grantha) {
             return res.status(404).json({ error: 'Grantha not found' });
         }
 
-        // Fetch all verses
         const verses = await Verse.find({ granthaId }).sort({ chapterNumber: 1, verseNumber: 1 }).lean();
-
-        // Get all verse IDs
         const verseIds = verses.map(v => v._id);
-
-        // Fetch ALL commentaries for these verses (FIXED)
-        const allCommentaries = await Commentary.find({
-            verseId: { $in: verseIds }
-        }).lean();
+        const allCommentaries = await Commentary.find({ verseId: { $in: verseIds } }).lean();
 
         console.log(`Exporting: ${verses.length} verses, ${allCommentaries.length} commentaries`);
 
-        // Create export data
         const exportData = {
             exportVersion: '1.0',
             exportDate: new Date().toISOString(),
@@ -140,23 +131,18 @@ router.post('/import', upload.single('granthaFile'), async (req, res) => {
             return res.status(400).json({ error: 'No file uploaded' });
         }
 
-        // Parse JSON from uploaded file
         const importData = JSON.parse(req.file.buffer.toString('utf8'));
 
-        // Validate import data
         if (!importData.grantha || !importData.verses) {
             return res.status(400).json({ error: 'Invalid import file format' });
         }
 
-        // Create grantha (without _id)
         const { _id, createdAt, updatedAt, __v, ...granthaData } = importData.grantha;
         const newGrantha = new Grantha(granthaData);
         await newGrantha.save();
 
-        // Map to store old verse IDs to new verse IDs
         const verseIdMap = new Map();
 
-        // Import verses
         for (const oldVerse of importData.verses) {
             const { _id: oldId, createdAt, updatedAt, __v, ...verseData } = oldVerse;
 
@@ -166,16 +152,12 @@ router.post('/import', upload.single('granthaFile'), async (req, res) => {
             });
             await newVerse.save();
 
-            // Store mapping of old ID to new ID
             verseIdMap.set(oldId, newVerse._id);
         }
 
-        // Import commentaries (if they exist)
         if (importData.commentaries && importData.commentaries.length > 0) {
-            // Map to store old commentary IDs to new commentary IDs
             const commentaryIdMap = new Map();
 
-            // First pass: Create all commentaries (without parent references)
             for (const oldCommentary of importData.commentaries) {
                 const { _id: oldId, createdAt, updatedAt, __v, ...commentaryData } = oldCommentary;
 
@@ -183,15 +165,13 @@ router.post('/import', upload.single('granthaFile'), async (req, res) => {
                     ...commentaryData,
                     granthaId: newGrantha._id,
                     verseId: verseIdMap.get(commentaryData.verseId.toString()),
-                    parentCommentaryId: null // Will fix in second pass
+                    parentCommentaryId: null
                 });
                 await newCommentary.save();
 
-                // Store mapping
                 commentaryIdMap.set(oldId, newCommentary._id);
             }
 
-            // Second pass: Update parent commentary references
             for (const oldCommentary of importData.commentaries) {
                 if (oldCommentary.parentCommentaryId) {
                     const newCommentaryId = commentaryIdMap.get(oldCommentary._id);
@@ -231,28 +211,10 @@ router.post('/', async (req, res) => {
     }
 });
 
-// Update grantha
+// Update grantha - FIXED to update commentary names everywhere
 router.put('/:id', async (req, res) => {
     try {
-        const grantha = await Grantha.findByIdAndUpdate(
-            req.params.id,
-            req.body,
-            { new: true, runValidators: true }
-        );
-
-        if (!grantha) {
-            return res.status(404).json({ error: 'Grantha not found' });
-        }
-
-        res.json(grantha);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Update grantha (ENHANCED - also updates commentary names)
-router.put('/:id', async (req, res) => {
-    try {
+        // Get old grantha first
         const oldGrantha = await Grantha.findById(req.params.id);
         if (!oldGrantha) {
             return res.status(404).json({ error: 'Grantha not found' });
@@ -265,7 +227,9 @@ router.put('/:id', async (req, res) => {
         // Create a map of old names to new names
         const nameChanges = new Map();
         oldCommentaries.forEach(oldComm => {
-            const newComm = newCommentaries.find(nc => nc._id && nc._id.toString() === oldComm._id.toString());
+            const newComm = newCommentaries.find(nc =>
+                nc._id && nc._id.toString() === oldComm._id.toString()
+            );
             if (newComm && newComm.name !== oldComm.name) {
                 nameChanges.set(oldComm.name, newComm.name);
             }
@@ -314,18 +278,13 @@ router.delete('/:id', async (req, res) => {
             return res.status(404).json({ error: 'Grantha not found' });
         }
 
-        // Delete all associated verses
         const verses = await Verse.find({ granthaId: req.params.id });
 
-        // Delete all commentaries for all verses
         for (const verse of verses) {
             await Commentary.deleteMany({ verseId: verse._id });
         }
 
-        // Delete all verses
         await Verse.deleteMany({ granthaId: req.params.id });
-
-        // Delete grantha
         await Grantha.findByIdAndDelete(req.params.id);
 
         res.json({
