@@ -211,29 +211,39 @@ router.post('/', async (req, res) => {
     }
 });
 
-// Update grantha - WITH COMMENTARY NAME SYNC
+// Update grantha - DEBUG VERSION with detailed logging
 router.put('/:id', async (req, res) => {
     try {
-        // Get old grantha first
         const oldGrantha = await Grantha.findById(req.params.id);
         if (!oldGrantha) {
             return res.status(404).json({ error: 'Grantha not found' });
         }
 
-        // Check if availableCommentaries changed
+        console.log('====== GRANTHA UPDATE DEBUG ======');
+        console.log('Old Commentaries:', JSON.stringify(oldGrantha.availableCommentaries, null, 2));
+        console.log('New Commentaries:', JSON.stringify(req.body.availableCommentaries, null, 2));
+
         const oldCommentaries = oldGrantha.availableCommentaries || [];
         const newCommentaries = req.body.availableCommentaries || [];
 
-        // Create a map of old names to new names
-        const nameChanges = new Map();
-        oldCommentaries.forEach(oldComm => {
+        // Find name changes by matching IDs
+        const nameChanges = [];
+        for (let i = 0; i < oldCommentaries.length; i++) {
+            const oldComm = oldCommentaries[i];
             const newComm = newCommentaries.find(nc =>
                 nc._id && nc._id.toString() === oldComm._id.toString()
             );
+
             if (newComm && newComm.name !== oldComm.name) {
-                nameChanges.set(oldComm.name, newComm.name);
+                console.log(`Found name change: "${oldComm.name}" -> "${newComm.name}"`);
+                nameChanges.push({
+                    oldName: oldComm.name,
+                    newName: newComm.name
+                });
             }
-        });
+        }
+
+        console.log('Total name changes detected:', nameChanges.length);
 
         // Update the grantha
         const grantha = await Grantha.findByIdAndUpdate(
@@ -242,30 +252,35 @@ router.put('/:id', async (req, res) => {
             { new: true, runValidators: true }
         );
 
-        // Update all Commentary documents with the old names
+        // Update commentaries
         let totalUpdated = 0;
-        if (nameChanges.size > 0) {
-            console.log('🔄 Updating commentary names:', Array.from(nameChanges.entries()));
+        if (nameChanges.length > 0) {
+            for (const change of nameChanges) {
+                console.log(`🔄 Updating from "${change.oldName}" to "${change.newName}"`);
 
-            for (const [oldName, newName] of nameChanges.entries()) {
                 const result = await Commentary.updateMany(
                     {
                         granthaId: req.params.id,
-                        commentaryName: oldName
+                        commentaryName: change.oldName
                     },
                     {
-                        $set: { commentaryName: newName }
+                        $set: { commentaryName: change.newName }
                     }
                 );
+
                 totalUpdated += result.modifiedCount;
-                console.log(`✅ Updated ${result.modifiedCount} commentaries from "${oldName}" to "${newName}"`);
+                console.log(`✅ Modified ${result.modifiedCount} commentaries`);
             }
         }
 
+        console.log(`Total commentaries updated: ${totalUpdated}`);
+        console.log('====== UPDATE COMPLETE ======');
+
         res.json({
+            success: true,
             grantha,
             updatedCommentaries: totalUpdated,
-            nameChanges: Array.from(nameChanges.entries())
+            nameChanges: nameChanges
         });
     } catch (error) {
         console.error('❌ Update error:', error);
