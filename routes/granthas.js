@@ -219,10 +219,6 @@ router.put('/:id', async (req, res) => {
             return res.status(404).json({ error: 'Grantha not found' });
         }
 
-        console.log('====== GRANTHA UPDATE DEBUG ======');
-        console.log('Old Commentaries:', JSON.stringify(oldGrantha.availableCommentaries, null, 2));
-        console.log('New Commentaries:', JSON.stringify(req.body.availableCommentaries, null, 2));
-
         const oldCommentaries = oldGrantha.availableCommentaries || [];
         const newCommentaries = req.body.availableCommentaries || [];
 
@@ -235,15 +231,12 @@ router.put('/:id', async (req, res) => {
             );
 
             if (newComm && newComm.name !== oldComm.name) {
-                console.log(`Found name change: "${oldComm.name}" -> "${newComm.name}"`);
                 nameChanges.push({
                     oldName: oldComm.name,
                     newName: newComm.name
                 });
             }
         }
-
-        console.log('Total name changes detected:', nameChanges.length);
 
         // Update the grantha
         const grantha = await Grantha.findByIdAndUpdate(
@@ -256,7 +249,6 @@ router.put('/:id', async (req, res) => {
         let totalUpdated = 0;
         if (nameChanges.length > 0) {
             for (const change of nameChanges) {
-                console.log(`🔄 Updating from "${change.oldName}" to "${change.newName}"`);
 
                 const result = await Commentary.updateMany(
                     {
@@ -269,12 +261,8 @@ router.put('/:id', async (req, res) => {
                 );
 
                 totalUpdated += result.modifiedCount;
-                console.log(`✅ Modified ${result.modifiedCount} commentaries`);
             }
         }
-
-        console.log(`Total commentaries updated: ${totalUpdated}`);
-        console.log('====== UPDATE COMPLETE ======');
 
         res.json({
             success: true,
