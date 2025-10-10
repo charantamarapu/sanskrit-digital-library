@@ -211,7 +211,7 @@ router.post('/', async (req, res) => {
     }
 });
 
-// Update grantha - FIXED to update commentary names everywhere
+// Update grantha - WITH COMMENTARY NAME SYNC
 router.put('/:id', async (req, res) => {
     try {
         // Get old grantha first
@@ -243,8 +243,9 @@ router.put('/:id', async (req, res) => {
         );
 
         // Update all Commentary documents with the old names
+        let totalUpdated = 0;
         if (nameChanges.size > 0) {
-            console.log('Updating commentary names:', Array.from(nameChanges.entries()));
+            console.log('🔄 Updating commentary names:', Array.from(nameChanges.entries()));
 
             for (const [oldName, newName] of nameChanges.entries()) {
                 const result = await Commentary.updateMany(
@@ -256,16 +257,18 @@ router.put('/:id', async (req, res) => {
                         $set: { commentaryName: newName }
                     }
                 );
-                console.log(`Updated ${result.modifiedCount} commentaries from "${oldName}" to "${newName}"`);
+                totalUpdated += result.modifiedCount;
+                console.log(`✅ Updated ${result.modifiedCount} commentaries from "${oldName}" to "${newName}"`);
             }
         }
 
         res.json({
             grantha,
-            updatedCommentaries: nameChanges.size > 0 ? Array.from(nameChanges.entries()) : []
+            updatedCommentaries: totalUpdated,
+            nameChanges: Array.from(nameChanges.entries())
         });
     } catch (error) {
-        console.error('Update error:', error);
+        console.error('❌ Update error:', error);
         res.status(500).json({ error: error.message });
     }
 });
